@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -43,13 +44,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
 }
 
 html {
   color-scheme: light;
 }
+
 html.dark {
   color-scheme: dark;
 }
@@ -58,33 +62,84 @@ body {
   @apply bg-surface text-ink font-body antialiased transition-colors duration-200;
 }
 
+/* =========================================
+   LIGHT MODE TEXT FIX
+   ========================================= */
+
+/* Make default text dark in light mode */
+html:not(.dark) body {
+  color: rgb(var(--c-ink));
+}
+
+/* Fix white Tailwind text on the light preview side */
+html:not(.dark) body .text-white {
+  color: rgb(var(--c-ink)) !important;
+}
+
+/* Softer text */
+html:not(.dark) body .text-gray-100,
+html:not(.dark) body .text-gray-200 {
+  color: rgb(var(--c-ink-soft)) !important;
+}
+
+html:not(.dark) body .text-gray-300 {
+  color: rgb(var(--c-ink-muted)) !important;
+}
+
+/* Keep yellow text/status visible */
+html:not(.dark) body .text-yellow-400,
+html:not(.dark) body .text-yellow-500 {
+  color: #eab308 !important;
+}
+
+/* =========================================
+   SELECTION
+   ========================================= */
+
 ::selection {
   background-color: #FDE047;
   color: #18181B;
 }
 
+/* =========================================
+   SCROLLBAR
+   ========================================= */
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background-color: rgb(var(--c-line));
   border-radius: 999px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background-color: rgb(var(--c-ink-faint));
 }
+
+/* =========================================
+   FOCUS
+   ========================================= */
 
 :focus-visible {
   outline: 2px solid #EAB308;
   outline-offset: 2px;
 }
 
+/* =========================================
+   REDUCED MOTION
+   ========================================= */
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
