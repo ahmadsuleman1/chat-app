@@ -1,0 +1,410 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import ChatSidebar from '../components/chat/ChatSidebar';
+import ChatHeader from '../components/chat/ChatHeader';
+import MessageList from '../components/chat/MessageList';
+import MessageInput from '../components/chat/MessageInput';
+import EmptyState from '../components/chat/EmptyState';
+import GroupInfoModal from '../components/chat/GroupInfoModal';
+import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { conversationService } from '../services/conversationService';
+import { messageService } from '../services/messageService';
+import { groupService } from '../services/groupService';
+import { getSocket } from '../socket/socket';
+import { normalizeMessage } from '../utils/normalize';
+
+export default function Chat() {
+  const { currentUser } = useAuth();
+  const toast = useToast();
+
+  const [conversations, setConversations] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [listLoading, setListLoading] = useState(true);
+
+  const [activeChat, setActiveChat] = useState(null); // { kind: 'dm'|'group', id, ... }
+  const [messages, setMessages] = useState([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [typingUser, setTypingUser] = useState(null);
+  const [sidebarVisibleOnMobile, setSidebarVisibleOnMobile] = useState(true);
+  const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+
+  // Merge conversations + groups into one time-sorted sidebar list
+  const chatItems = useMemo(() => {
+    const dms = conversations.map((c) => ({ ...c, kind: 'dm' }));
+    const grps = groups.map((g) => ({ ...g, kind: 'group' }));
+    return [...dms, ...grps].sort(
+      (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0)
+    );
+  }, [conversations, groups]);
+
+  // Load conversations + groups together
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      setListLoading(true);
+      try {
+        const [convData, groupData] = await Promise.all([
+          conversationService.list(),
+          groupService.list(),
+        ]);
+        if (!cancelled) {
+          setConversations(convData.conversations || []);
+          setGroups(groupData.groups || []);
+        }
+      } catch (err) {
+        if (!cancelled) toast.error(err.message || 'Could not load your chats.');
+      } finally {
+        if (!cancelled) setListLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load messages whenever the active chat changes
+  useEffect(() => {
+    if (!activeChat) return;
+    let cancelled = false;
+
+    async function loadMessages() {
+      setMessagesLoading(true);
+      setMessages([]);
+      try {
+        const data =
+          activeChat.kind === 'group'
+            ? await groupService.getMessages(activeChat.id)
+            : await messageService.getMessages(activeChat.id);
+        const raw = data.messages || data || [];
+        if (!cancelled) setMessages(raw.map(normalizeMessage));
+      } catch (err) {
+        if (!cancelled) toast.error(err.message || 'Could not load messages.');
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }
+    loadMessages();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChat?.kind, activeChat?.id]);
+
+  // Socket event wiring: presence, incoming messages, typing, group lifecycle
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket) return;
+
+    function handleReceiveMessage(raw) {
+      const message = normalizeMessage(raw);
+      const belongsToActive =
+        activeChat &&
+        ((activeChat.kind === 'dm' && message.conversationId === activeChat.id) ||
+          (activeChat.kind === 'group' && message.groupId === activeChat.id));
+
+      if (belongsToActive) {
+        setMessages((prev) => [...prev, message]);
+      }
+
+      if (message.conversationId) {
+        setConversations((prev) =>
+          prev.map((c) =>
+            c.id === message.conversationId
+              ? { ...c, lastMessage: message, updatedAt: message.createdAt }
+              : c
+          )
+        );
+      }
+      if (message.groupId) {
+        setGroups((prev) =>
+          prev.map((g) =>
+            g.id === message.groupId
+              ? { ...g, lastMessage: message, updatedAt: message.createdAt }
+              : g
+          )
+        );
+      }
+    }
+
+    function handlePresence({ userId, status, lastSeen }) {
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.user?.id === userId ? { ...c, user: { ...c.user, status, lastSeen } } : c
+        )
+      );
+      setGroups((prev) =>
+        prev.map((g) => ({
+          ...g,
+          members: g.members?.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m)),
+        }))
+      );
+      setActiveChat((prev) => {
+        if (!prev) return prev;
+        if (prev.kind === 'dm' && prev.user?.id === userId) {
+          return { ...prev, user: { ...prev.user, status, lastSeen } };
+        }
+        if (prev.kind === 'group') {
+          return {
+            ...prev,
+            members: prev.members?.map((m) => (m.id === userId ? { ...m, status, lastSeen } : m)),
+          };
+        }
+        return prev;
+      });
+    }
+
+    function resolveTyperName(userId) {
+      if (!activeChat) return 'Someone';
+      if (activeChat.kind === 'dm') return activeChat.user?.name || 'Someone';
+      const member = activeChat.members?.find((m) => m.id === userId);
+      return member?.name || 'Someone';
+    }
+
+    function handleTyping({ conversationId, groupId, userId }) {
+      if (activeChat?.kind === 'dm' && conversationId === activeChat.id) {
+        setTypingUser(resolveTyperName(userId));
+      } else if (activeChat?.kind === 'group' && groupId === activeChat.id) {
+        setTypingUser(resolveTyperName(userId));
+      }
+    }
+
+    function handleStopTyping({ conversationId, groupId }) {
+      if (
+        (activeChat?.kind === 'dm' && conversationId === activeChat.id) ||
+        (activeChat?.kind === 'group' && groupId === activeChat.id)
+      ) {
+        setTypingUser(null);
+      }
+    }
+
+    function handleGroupDeleted({ groupId }) {
+      setGroups((prev) => prev.filter((g) => g.id !== groupId));
+      setActiveChat((prev) => {
+        if (prev?.kind === 'group' && prev.id === groupId) {
+          toast.info('This group was deleted.');
+          return null;
+        }
+        return prev;
+      });
+    }
+
+    function handleMemberLeftGroup({ groupId, userId }) {
+      setGroups((prev) =>
+        prev.map((g) =>
+          g.id === groupId
+            ? { ...g, members: g.members?.filter((m) => m.id !== userId) }
+            : g
+        )
+      );
+    }
+
+    socket.on('receive_message', handleReceiveMessage);
+    socket.on('presence', handlePresence);
+    socket.on('typing', handleTyping);
+    socket.on('stop_typing', handleStopTyping);
+    socket.on('group_deleted', handleGroupDeleted);
+    socket.on('member_left_group', handleMemberLeftGroup);
+
+    return () => {
+      socket.off('receive_message', handleReceiveMessage);
+      socket.off('presence', handlePresence);
+      socket.off('typing', handleTyping);
+      socket.off('stop_typing', handleStopTyping);
+      socket.off('group_deleted', handleGroupDeleted);
+      socket.off('member_left_group', handleMemberLeftGroup);
+    };
+  }, [activeChat, toast]);
+
+  const handleSelectChat = useCallback(
+    (item) => {
+      const socket = getSocket();
+      if (activeChat?.kind === 'group' && activeChat.id !== item.id) {
+        socket?.emit('leave_group', activeChat.id);
+      }
+      setActiveChat(item);
+      setTypingUser(null);
+      setSidebarVisibleOnMobile(false);
+      if (item.kind === 'group') {
+        socket?.emit('join_group', item.id);
+      }
+    },
+    [activeChat]
+  );
+
+  const handleStartConversation = useCallback(
+    async (user) => {
+      try {
+        const data = await conversationService.createOrGet(user._id || user.id);
+        const conversation = data.conversation || data;
+        setConversations((prev) => {
+          const exists = prev.some((c) => c.id === conversation.id);
+          return exists ? prev : [conversation, ...prev];
+        });
+        handleSelectChat({ ...conversation, kind: 'dm' });
+      } catch (err) {
+        toast.error(err.message || 'Could not start conversation.');
+      }
+    },
+    [handleSelectChat, toast]
+  );
+
+  const handleGroupCreated = useCallback(
+    (group) => {
+      setGroups((prev) => [group, ...prev]);
+      handleSelectChat({ ...group, kind: 'group' });
+    },
+    [handleSelectChat]
+  );
+
+  const handleGroupUpdated = useCallback((group) => {
+    setGroups((prev) => prev.map((g) => (g.id === group.id ? group : g)));
+    setActiveChat((prev) => (prev?.kind === 'group' && prev.id === group.id ? { ...group, kind: 'group' } : prev));
+  }, []);
+
+  const handleGroupLeft = useCallback((groupId) => {
+    setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    setActiveChat((prev) => (prev?.kind === 'group' && prev.id === groupId ? null : prev));
+  }, []);
+
+  const handleGroupDeleted = useCallback((groupId) => {
+    setGroups((prev) => prev.filter((g) => g.id !== groupId));
+    setActiveChat((prev) => (prev?.kind === 'group' && prev.id === groupId ? null : prev));
+  }, []);
+
+  const appendOptimistic = useCallback(
+    (base) => {
+      const optimisticId = `temp-${Date.now()}`;
+      const optimistic = {
+        id: optimisticId,
+        conversationId: activeChat.kind === 'dm' ? activeChat.id : null,
+        groupId: activeChat.kind === 'group' ? activeChat.id : null,
+        senderId: currentUser.id,
+        senderName: currentUser.name,
+        senderAvatar: currentUser.avatarUrl,
+        status: 'sent',
+        createdAt: new Date().toISOString(),
+        ...base,
+      };
+      setMessages((prev) => [...prev, optimistic]);
+      return optimisticId;
+    },
+    [activeChat, currentUser]
+  );
+
+  const handleSend = useCallback(
+    async (text) => {
+      if (!activeChat) return;
+      const optimisticId = appendOptimistic({ text, type: 'text' });
+
+      try {
+        const data =
+          activeChat.kind === 'group'
+            ? await groupService.sendMessage(activeChat.id, { text })
+            : await messageService.sendMessage(activeChat.id, { text });
+        const saved = normalizeMessage(data.message || data);
+        setMessages((prev) => prev.map((m) => (m.id === optimisticId ? saved : m)));
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        toast.error(err.message || 'Message could not be sent.');
+      }
+    },
+    [activeChat, appendOptimistic, toast]
+  );
+
+  const handleSendLocation = useCallback(
+    async (coords) => {
+      if (!activeChat) return;
+      if (coords.error) {
+        toast.error(coords.error);
+        return;
+      }
+      const optimisticId = appendOptimistic({
+        type: 'location',
+        location: { lat: coords.lat, lng: coords.lng },
+      });
+
+      try {
+        const payload = { type: 'location', location: coords };
+        const data =
+          activeChat.kind === 'group'
+            ? await groupService.sendMessage(activeChat.id, payload)
+            : await messageService.sendMessage(activeChat.id, payload);
+        const saved = normalizeMessage(data.message || data);
+        setMessages((prev) => prev.map((m) => (m.id === optimisticId ? saved : m)));
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        toast.error(err.message || 'Could not share location.');
+      }
+    },
+    [activeChat, appendOptimistic, toast]
+  );
+
+  const handleTypingChange = useCallback(
+    (isTyping) => {
+      if (!activeChat) return;
+      const socket = getSocket();
+      const payload =
+        activeChat.kind === 'group'
+          ? { groupId: activeChat.id }
+          : { conversationId: activeChat.id, receiverId: activeChat.user?.id };
+      socket?.emit(isTyping ? 'typing' : 'stop_typing', payload);
+    },
+    [activeChat]
+  );
+
+  return (
+    <div className="relative h-screen w-full overflow-hidden bg-surface lg:flex">
+      <div
+        className={`absolute inset-0 z-10 transition-transform duration-300 ease-out lg:static lg:z-auto lg:w-80 lg:shrink-0 lg:translate-x-0 ${
+          sidebarVisibleOnMobile ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <ChatSidebar
+          items={chatItems}
+          loading={listLoading}
+          activeChatId={activeChat?.id}
+          onSelectChat={handleSelectChat}
+          onStartConversation={handleStartConversation}
+          onGroupCreated={handleGroupCreated}
+        />
+      </div>
+
+      <div
+        className={`absolute inset-0 flex flex-col transition-transform duration-300 ease-out lg:static lg:min-w-0 lg:flex-1 lg:translate-x-0 ${
+          sidebarVisibleOnMobile ? 'translate-x-full' : 'translate-x-0'
+        }`}
+      >
+        {activeChat ? (
+          <>
+            <ChatHeader
+              chat={activeChat}
+              onBack={() => setSidebarVisibleOnMobile(true)}
+              onOpenGroupInfo={() => setGroupInfoOpen(true)}
+            />
+            <MessageList
+              messages={messages}
+              loading={messagesLoading}
+              currentUserId={currentUser?.id}
+              typingUser={typingUser}
+              showSenderName={activeChat.kind === 'group'}
+            />
+            <MessageInput onSend={handleSend} onSendLocation={handleSendLocation} onTyping={handleTypingChange} />
+          </>
+        ) : (
+          <EmptyState />
+        )}
+      </div>
+
+      <GroupInfoModal
+        open={groupInfoOpen && activeChat?.kind === 'group'}
+        onClose={() => setGroupInfoOpen(false)}
+        group={activeChat?.kind === 'group' ? activeChat : null}
+        onUpdated={handleGroupUpdated}
+        onLeft={handleGroupLeft}
+        onDeleted={handleGroupDeleted}
+      />
+    </div>
+  );
+}

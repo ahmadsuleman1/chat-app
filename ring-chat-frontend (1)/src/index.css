@@ -1,0 +1,92 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c-ink: 24 24 27;
+  --c-ink-soft: 63 63 70;
+  --c-ink-muted: 113 113 122;
+  --c-ink-faint: 161 161 170;
+
+  --c-surface: 250 250 249;
+  --c-surface-card: 255 255 255;
+  --c-surface-sunken: 244 244 243;
+
+  --c-line: 228 228 231;
+
+  --c-success: 22 163 74;
+  --c-success-bg: 240 253 244;
+  --c-danger: 220 38 38;
+  --c-danger-bg: 254 242 242;
+}
+
+.dark {
+  --c-ink: 250 250 250;
+  --c-ink-soft: 212 212 216;
+  --c-ink-muted: 161 161 170;
+  --c-ink-faint: 113 113 122;
+
+  --c-surface: 20 20 23;
+  --c-surface-card: 30 30 33;
+  --c-surface-sunken: 39 39 43;
+
+  --c-line: 58 58 63;
+
+  --c-success: 34 197 94;
+  --c-success-bg: 5 46 22;
+  --c-danger: 248 113 113;
+  --c-danger-bg: 69 10 10;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-surface text-ink font-body antialiased transition-colors duration-200;
+}
+
+::selection {
+  background-color: #FDE047;
+  color: #18181B;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: rgb(var(--c-line));
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(var(--c-ink-faint));
+}
+
+:focus-visible {
+  outline: 2px solid #EAB308;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
