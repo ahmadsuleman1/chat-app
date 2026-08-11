@@ -52,7 +52,7 @@ export default function Avatar({
         />
       )}
       <div
-        className={`${s.box} relative flex items-center justify-center overflow-hidden rounded-full bg-ink font-display font-semibold text-white ${s.text}`}
+        className={`${s.box} relative flex items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-brand-400 to-brand-600 font-display font-semibold text-ink ${s.text}`}
       >
         {src ? (
           <img src={src} alt={name || 'User avatar'} className="h-full w-full object-cover" />

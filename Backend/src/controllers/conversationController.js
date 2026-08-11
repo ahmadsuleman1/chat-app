@@ -37,6 +37,7 @@ export const getConversations = async (req, res) => {
   try {
     const conversations = await Conversation.find({
       participants: req.userId,
+      deletedFor: { $ne: req.userId },
     })
       .populate("participants", "name username avatar status lastSeen")
       .populate({
@@ -108,6 +109,48 @@ export const createConversation = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Something went wrong while creating conversation",
+    });
+  }
+};
+
+// =========================
+// DELETE CONVERSATION (delete for me)
+// =========================
+export const deleteConversation = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const conversation = await Conversation.findById(id);
+    if (!conversation) {
+      return res.status(404).json({
+        success: false,
+        message: "Conversation not found",
+      });
+    }
+
+    const isParticipant = conversation.participants.some(
+      (p) => p.toString() === req.userId
+    );
+    if (!isParticipant) {
+      return res.status(403).json({
+        success: false,
+        message: "You are not a participant of this conversation",
+      });
+    }
+
+    await Conversation.findByIdAndUpdate(id, {
+      $addToSet: { deletedFor: req.userId },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Conversation deleted",
+    });
+  } catch (error) {
+    console.error("Delete conversation error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while deleting the conversation",
     });
   }
 };

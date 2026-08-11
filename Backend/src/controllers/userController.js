@@ -36,6 +36,48 @@ const searchResultUser = (user) => ({
 });
 
 // =========================
+// GET SINGLE USER'S PUBLIC PROFILE (bio, joined date, avatar, etc.)
+// =========================
+export const getUserById = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId).select(
+      "name username avatar bio status lastSeen createdAt followers following"
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        username: user.username,
+        avatar: user.avatar,
+        bio: user.bio,
+        status: user.status,
+        lastSeen: user.lastSeen,
+        joinedAt: user.createdAt,
+        followerCount: user.followers?.length || 0,
+        followingCount: user.following?.length || 0,
+      },
+    });
+  } catch (error) {
+    console.error("Get user by id error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while fetching this profile",
+    });
+  }
+};
+
+// =========================
 // SEARCH USERS BY USERNAME
 // =========================
 export const searchUsers = async (req, res) => {

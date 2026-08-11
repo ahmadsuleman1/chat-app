@@ -13,7 +13,7 @@ function formatLastSeen(dateStr) {
   return `${days}d ago`;
 }
 
-export default function ChatHeader({ chat, onBack, onOpenGroupInfo }) {
+export default function ChatHeader({ chat, onBack, onOpenGroupInfo, onOpenUserProfile }) {
   if (!chat) return null;
   const isGroup = chat.kind === 'group';
   const user = chat.user;
@@ -50,7 +50,10 @@ export default function ChatHeader({ chat, onBack, onOpenGroupInfo }) {
           <ChevronRight size={16} className="shrink-0 text-ink-faint" />
         </button>
       ) : (
-        <div className="flex min-w-0 flex-1 items-center gap-3">
+        <button
+          onClick={onOpenUserProfile}
+          className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-0.5 pr-2 text-left transition-colors hover:bg-surface-sunken"
+        >
           <Avatar name={user?.name} src={user?.avatarUrl} status={user?.status} size="md" />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-ink">{user?.name}</p>
@@ -58,7 +61,7 @@ export default function ChatHeader({ chat, onBack, onOpenGroupInfo }) {
               {isOnline ? 'Online' : user?.lastSeen ? `Last seen ${formatLastSeen(user.lastSeen)}` : 'Offline'}
             </p>
           </div>
-        </div>
+        </button>
       )}
     </div>
   );

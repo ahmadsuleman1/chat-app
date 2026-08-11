@@ -7,6 +7,11 @@ export const userService = {
       ...r.data,
       users: withAvatarUrlList(r.data.users),
     })),
+  getById: (userId) =>
+    api.get(`/users/${userId}`).then((r) => ({
+      ...r.data,
+      user: r.data.user ? { ...r.data.user, avatarUrl: r.data.user.avatar || '' } : null,
+    })),
   updateProfile: (payload) => api.patch('/users/me', payload).then((r) => r.data),
   uploadAvatar: (file) => {
     const formData = new FormData();

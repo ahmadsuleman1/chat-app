@@ -16,6 +16,7 @@ export default function ChatSidebar({
   onSelectChat,
   onStartConversation,
   onGroupCreated,
+  onDeleteConversation,
   className = '',
 }) {
   const { currentUser, logout } = useAuth();
@@ -83,6 +84,7 @@ export default function ChatSidebar({
               item={item}
               active={item.id === activeChatId}
               onClick={() => onSelectChat(item)}
+              onDelete={item.kind === 'dm' ? onDeleteConversation : undefined}
             />
           ))}
         </div>

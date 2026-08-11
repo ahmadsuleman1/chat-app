@@ -178,7 +178,7 @@ export default function Profile() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-card bg-ink text-white transition-transform hover:scale-105 active:scale-95 disabled:opacity-60"
+                className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-surface-card bg-brand-400 text-ink transition-transform hover:scale-105 hover:bg-brand-500 active:scale-95 disabled:opacity-60"
                 aria-label="Change profile photo"
               >
                 {uploading ? <Spinner size={14} /> : <Camera size={14} />}

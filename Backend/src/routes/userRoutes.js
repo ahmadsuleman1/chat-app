@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import {
   searchUsers,
+  getUserById,
   followUser,
   unfollowUser,
   getFollowers,
@@ -31,6 +32,7 @@ const upload = multer({
 router.use(protect);
 
 router.get("/search", searchUsers);
+router.get("/:userId", getUserById);
 router.post("/:userId/follow", followUser);
 router.delete("/:userId/follow", unfollowUser);
 router.get("/:userId/followers", getFollowers);

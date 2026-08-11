@@ -78,6 +78,7 @@ export const initializeSocket = (server) => {
           const conversation = await Conversation.findById(conversationId);
           if (conversation) {
             conversation.lastMessage = message._id;
+            conversation.deletedFor = []; // a new message un-hides the chat for everyone
             await conversation.save();
 
             const receiverId = conversation.participants.find(

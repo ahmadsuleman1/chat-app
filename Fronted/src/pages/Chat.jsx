@@ -5,6 +5,7 @@ import MessageList from '../components/chat/MessageList';
 import MessageInput from '../components/chat/MessageInput';
 import EmptyState from '../components/chat/EmptyState';
 import GroupInfoModal from '../components/chat/GroupInfoModal';
+import UserProfileModal from '../components/chat/UserProfileModal';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
 import { conversationService } from '../services/conversationService';
@@ -27,6 +28,7 @@ export default function Chat() {
   const [typingUser, setTypingUser] = useState(null);
   const [sidebarVisibleOnMobile, setSidebarVisibleOnMobile] = useState(true);
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
+  const [userProfileOpen, setUserProfileOpen] = useState(false);
 
   // Merge conversations + groups into one time-sorted sidebar list
   const chatItems = useMemo(() => {
@@ -200,12 +202,20 @@ export default function Chat() {
       );
     }
 
+    // Sender's side: a message they sent has now been seen by the recipient
+    function handleMessageRead({ messageId }) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, status: 'read' } : m))
+      );
+    }
+
     socket.on('receive_message', handleReceiveMessage);
     socket.on('presence', handlePresence);
     socket.on('typing', handleTyping);
     socket.on('stop_typing', handleStopTyping);
     socket.on('group_deleted', handleGroupDeleted);
     socket.on('member_left_group', handleMemberLeftGroup);
+    socket.on('message_read', handleMessageRead);
 
     return () => {
       socket.off('receive_message', handleReceiveMessage);
@@ -214,8 +224,33 @@ export default function Chat() {
       socket.off('stop_typing', handleStopTyping);
       socket.off('group_deleted', handleGroupDeleted);
       socket.off('member_left_group', handleMemberLeftGroup);
+      socket.off('message_read', handleMessageRead);
     };
   }, [activeChat, toast]);
+
+  // Receiver's side: while a DM is open, mark any of the other person's
+  // unread messages as read (this is what actually makes the blue ticks work)
+  useEffect(() => {
+    if (!activeChat || activeChat.kind !== 'dm' || !currentUser) return;
+    const socket = getSocket();
+    if (!socket) return;
+
+    const unseen = messages.filter(
+      (m) =>
+        m.senderId !== currentUser.id &&
+        m.status !== 'read' &&
+        !String(m.id).startsWith('temp-')
+    );
+
+    unseen.forEach((m) => socket.emit('message_read', { messageId: m.id }));
+
+    // Reflect it in the sidebar badge right away instead of waiting on a refetch
+    if (unseen.length > 0) {
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeChat.id ? { ...c, unreadCount: 0 } : c))
+      );
+    }
+  }, [activeChat, messages, currentUser]);
 
   const handleSelectChat = useCallback(
     (item) => {
@@ -228,6 +263,16 @@ export default function Chat() {
       setSidebarVisibleOnMobile(false);
       if (item.kind === 'group') {
         socket?.emit('join_group', item.id);
+      }
+      // Optimistically clear the badge the moment you open a chat
+      if (item.kind === 'dm') {
+        setConversations((prev) =>
+          prev.map((c) => (c.id === item.id ? { ...c, unreadCount: 0 } : c))
+        );
+      } else {
+        setGroups((prev) =>
+          prev.map((g) => (g.id === item.id ? { ...g, unreadCount: 0 } : g))
+        );
       }
     },
     [activeChat]
@@ -272,6 +317,27 @@ export default function Chat() {
     setGroups((prev) => prev.filter((g) => g.id !== groupId));
     setActiveChat((prev) => (prev?.kind === 'group' && prev.id === groupId ? null : prev));
   }, []);
+
+  const handleDeleteConversation = useCallback(
+    async (conversation) => {
+      const confirmed = window.confirm(
+        `Delete your chat with ${conversation.user?.name || 'this person'}? It'll be removed from your list, but stays for them.`
+      );
+      if (!confirmed) return;
+
+      try {
+        await conversationService.delete(conversation.id);
+        setConversations((prev) => prev.filter((c) => c.id !== conversation.id));
+        setActiveChat((prev) =>
+          prev?.kind === 'dm' && prev.id === conversation.id ? null : prev
+        );
+        toast.success('Chat deleted.');
+      } catch (err) {
+        toast.error(err.message || 'Could not delete chat.');
+      }
+    },
+    [toast]
+  );
 
   const appendOptimistic = useCallback(
     (base) => {
@@ -368,6 +434,7 @@ export default function Chat() {
           onSelectChat={handleSelectChat}
           onStartConversation={handleStartConversation}
           onGroupCreated={handleGroupCreated}
+          onDeleteConversation={handleDeleteConversation}
         />
       </div>
 
@@ -382,6 +449,7 @@ export default function Chat() {
               chat={activeChat}
               onBack={() => setSidebarVisibleOnMobile(true)}
               onOpenGroupInfo={() => setGroupInfoOpen(true)}
+              onOpenUserProfile={() => setUserProfileOpen(true)}
             />
             <MessageList
               messages={messages}
@@ -404,6 +472,12 @@ export default function Chat() {
         onUpdated={handleGroupUpdated}
         onLeft={handleGroupLeft}
         onDeleted={handleGroupDeleted}
+      />
+
+      <UserProfileModal
+        open={userProfileOpen && activeChat?.kind === 'dm'}
+        onClose={() => setUserProfileOpen(false)}
+        userId={activeChat?.kind === 'dm' ? activeChat.user?.id : null}
       />
     </div>
   );

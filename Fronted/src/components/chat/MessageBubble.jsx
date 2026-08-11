@@ -15,7 +15,7 @@ export default function MessageBubble({ message, isOwn, senderName }) {
           isLocation ? 'p-0 overflow-hidden' : 'px-4 py-2.5'
         } ${
           isOwn
-            ? 'rounded-br-sm bg-brand-400 text-ink'
+            ? 'rounded-br-sm bg-gradient-to-br from-brand-300 to-brand-500 text-ink shadow-[0_2px_8px_-2px_rgba(234,179,8,0.4)]'
             : 'rounded-bl-sm border border-line bg-surface-card text-ink'
         }`}
       >
@@ -56,7 +56,7 @@ export default function MessageBubble({ message, isOwn, senderName }) {
           } ${isLocation ? 'pt-1' : 'mt-1'}`}
         >
           <span>{formatTime(createdAt)}</span>
-          {isOwn && status === 'seen' && <CheckCheck size={13} className="text-blue-600" />}
+          {isOwn && status === 'read' && <CheckCheck size={13} className="text-blue-600" />}
           {isOwn && status === 'delivered' && <CheckCheck size={13} />}
           {isOwn && status === 'sent' && <Check size={13} />}
         </div>

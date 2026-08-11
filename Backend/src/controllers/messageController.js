@@ -145,6 +145,7 @@ export const sendMessage = async (req, res) => {
     });
 
     conversation.lastMessage = message._id;
+    conversation.deletedFor = []; // a new message un-hides the chat for everyone
     await conversation.save();
 
     const populatedMessage = await message.populate(

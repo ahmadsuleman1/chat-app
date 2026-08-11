@@ -1,10 +1,17 @@
 import { useRef, useState } from 'react';
 import { MapPin, Send } from 'lucide-react';
+import EmojiPicker from './EmojiPicker';
 
 export default function MessageInput({ onSend, onSendLocation, onTyping, disabled }) {
   const [value, setValue] = useState('');
   const [sharingLocation, setSharingLocation] = useState(false);
   const typingTimeout = useRef(null);
+  const inputRef = useRef(null);
+
+  function handleEmojiSelect(emoji) {
+    setValue((prev) => prev + emoji);
+    inputRef.current?.focus();
+  }
 
   function handleChange(e) {
     setValue(e.target.value);
@@ -61,7 +68,9 @@ export default function MessageInput({ onSend, onSendLocation, onTyping, disable
       >
         <MapPin size={20} className={sharingLocation ? 'animate-pulse' : ''} />
       </button>
+      <EmojiPicker onSelect={handleEmojiSelect} />
       <input
+        ref={inputRef}
         value={value}
         onChange={handleChange}
         placeholder="Type a message..."
