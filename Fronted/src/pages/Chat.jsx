@@ -30,6 +30,7 @@ export default function Chat() {
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
   const [typingUser, setTypingUser] = useState(null);
+  const [replyingTo, setReplyingTo] = useState(null);
   const [sidebarVisibleOnMobile, setSidebarVisibleOnMobile] = useState(true);
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
   const [userProfileOpen, setUserProfileOpen] = useState(false);
@@ -79,6 +80,7 @@ export default function Chat() {
       setMessagesLoading(true);
       setMessages([]);
       setHasMoreMessages(false);
+      setReplyingTo(null);
       try {
         const data =
           activeChat.kind === 'group'
@@ -244,6 +246,17 @@ export default function Chat() {
       );
     }
 
+    // Someone else deleted a message "for everyone" - reflect it locally
+    function handleMessageDeleted({ messageId }) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, isDeleted: true, text: '', attachment: null, location: null }
+            : m
+        )
+      );
+    }
+
     socket.on('receive_message', handleReceiveMessage);
     socket.on('presence', handlePresence);
     socket.on('typing', handleTyping);
@@ -251,6 +264,7 @@ export default function Chat() {
     socket.on('group_deleted', handleGroupDeleted);
     socket.on('member_left_group', handleMemberLeftGroup);
     socket.on('message_read', handleMessageRead);
+    socket.on('message_deleted', handleMessageDeleted);
 
     return () => {
       socket.off('receive_message', handleReceiveMessage);
@@ -260,6 +274,7 @@ export default function Chat() {
       socket.off('group_deleted', handleGroupDeleted);
       socket.off('member_left_group', handleMemberLeftGroup);
       socket.off('message_read', handleMessageRead);
+      socket.off('message_deleted', handleMessageDeleted);
     };
   }, [activeChat, toast]);
 
@@ -395,15 +410,28 @@ export default function Chat() {
   );
 
   const handleSend = useCallback(
-    async (text) => {
+    async (text, replyToId) => {
       if (!activeChat) return;
-      const optimisticId = appendOptimistic({ text, type: 'text' });
+      const optimisticId = appendOptimistic({
+        text,
+        type: 'text',
+        replyTo: replyingTo
+          ? {
+              id: replyingTo.id,
+              senderName: replyingTo.senderId === currentUser.id ? 'You' : replyingTo.senderName,
+              text: replyingTo.text,
+              type: replyingTo.type,
+            }
+          : null,
+      });
+      setReplyingTo(null);
 
       try {
+        const payload = replyToId ? { text, replyTo: replyToId } : { text };
         const data =
           activeChat.kind === 'group'
-            ? await groupService.sendMessage(activeChat.id, { text })
-            : await messageService.sendMessage(activeChat.id, { text });
+            ? await groupService.sendMessage(activeChat.id, payload)
+            : await messageService.sendMessage(activeChat.id, payload);
         const saved = normalizeMessage(data.message || data);
         setMessages((prev) => prev.map((m) => (m.id === optimisticId ? saved : m)));
       } catch (err) {
@@ -411,7 +439,7 @@ export default function Chat() {
         toast.error(err.message || 'Message could not be sent.');
       }
     },
-    [activeChat, appendOptimistic, toast]
+    [activeChat, appendOptimistic, toast, replyingTo, currentUser]
   );
 
   const handleSendLocation = useCallback(
@@ -443,7 +471,7 @@ export default function Chat() {
   );
 
   const handleSendImage = useCallback(
-    async (file, caption = '') => {
+    async (file, caption = '', replyToId) => {
       if (!activeChat || !file) return;
 
       const previewUrl = URL.createObjectURL(file);
@@ -453,12 +481,14 @@ export default function Chat() {
         attachment: previewUrl,
         uploading: true,
       });
+      setReplyingTo(null);
 
       try {
         const formData = new FormData();
         formData.append('type', 'image');
         formData.append('media', file);
         if (caption) formData.append('text', caption);
+        if (replyToId) formData.append('replyTo', replyToId);
 
         const data =
           activeChat.kind === 'group'
@@ -474,6 +504,45 @@ export default function Chat() {
       }
     },
     [activeChat, appendOptimistic, toast]
+  );
+
+  const handleDeleteMessage = useCallback(
+    async (message, mode) => {
+      if (!activeChat) return;
+
+      if (mode === 'everyone') {
+        const confirmed = window.confirm('Delete this message for everyone?');
+        if (!confirmed) return;
+      }
+
+      // Optimistic update
+      if (mode === 'everyone') {
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id ? { ...m, isDeleted: true, text: '', attachment: null, location: null } : m
+          )
+        );
+      } else {
+        setMessages((prev) => prev.filter((m) => m.id !== message.id));
+      }
+
+      try {
+        if (activeChat.kind === 'group') {
+          await groupService.deleteMessage(activeChat.id, message.id, mode);
+        } else {
+          await messageService.deleteMessage(message.id, mode);
+        }
+      } catch (err) {
+        toast.error(err.message || 'Could not delete message.');
+        // Reload the thread to recover from a failed optimistic update
+        const data =
+          activeChat.kind === 'group'
+            ? await groupService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE })
+            : await messageService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE });
+        setMessages((data.messages || []).map(normalizeMessage));
+      }
+    },
+    [activeChat, toast]
   );
 
   const handleTypingChange = useCallback(
@@ -529,12 +598,16 @@ export default function Chat() {
               hasMore={hasMoreMessages}
               loadingMore={loadingMoreMessages}
               onLoadMore={handleLoadMoreMessages}
+              onReplyToMessage={setReplyingTo}
+              onDeleteMessage={handleDeleteMessage}
             />
             <MessageInput
               onSend={handleSend}
               onSendLocation={handleSendLocation}
               onSendImage={handleSendImage}
               onTyping={handleTypingChange}
+              replyingTo={replyingTo}
+              onCancelReply={() => setReplyingTo(null)}
             />
           </>
         ) : (

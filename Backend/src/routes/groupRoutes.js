@@ -14,6 +14,7 @@ import {
   getGroupMessages,
   sendGroupMessage,
 } from "../controllers/groupController.js";
+import { deleteMessage } from "../controllers/messageController.js";
 import { protect } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
@@ -47,5 +48,6 @@ router.delete("/:id/admins/:userId", demoteAdmin);
 
 router.get("/:id/messages", getGroupMessages);
 router.post("/:id/messages", upload.single("media"), sendGroupMessage);
+router.delete("/:id/messages/:messageId", deleteMessage);
 
 export default router;

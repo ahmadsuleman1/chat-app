@@ -51,6 +51,24 @@ const messageSchema = new mongoose.Schema(
         ref: "User",
       },
     ],
+    // The message this one is replying to (same conversation/group)
+    replyTo: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
+    // "Delete for everyone" - message stays in the DB but content is wiped
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    // "Delete for me" - hides the message only for these users
+    deletedFor: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+      },
+    ],
   },
   { timestamps: true }
 );

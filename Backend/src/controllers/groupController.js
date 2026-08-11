@@ -618,7 +618,7 @@ export const getGroupMessages = async (req, res) => {
       });
     }
 
-    const query = { group: id };
+    const query = { group: id, deletedFor: { $ne: req.userId } };
     if (before) {
       const beforeDate = new Date(before);
       if (!isNaN(beforeDate.getTime())) {
@@ -628,6 +628,11 @@ export const getGroupMessages = async (req, res) => {
 
     const page = await Message.find(query)
       .populate("sender", "name username avatar")
+      .populate({
+        path: "replyTo",
+        select: "text type attachment isDeleted sender",
+        populate: { path: "sender", select: "name username" },
+      })
       .sort({ createdAt: -1 })
       .limit(pageSize + 1);
 
@@ -654,7 +659,7 @@ export const getGroupMessages = async (req, res) => {
 export const sendGroupMessage = async (req, res) => {
   try {
     const { id } = req.params;
-    const { text, type, location } = req.body;
+    const { text, type, location, replyTo } = req.body;
 
     const isLocation = type === "location";
     const isImage = type === "image";
@@ -702,6 +707,18 @@ export const sendGroupMessage = async (req, res) => {
       attachmentUrl = result.secure_url;
     }
 
+    let replyToId = null;
+    if (replyTo) {
+      const replyMessage = await Message.findById(replyTo);
+      if (
+        replyMessage &&
+        replyMessage.group?.toString() === id &&
+        !replyMessage.isDeleted
+      ) {
+        replyToId = replyMessage._id;
+      }
+    }
+
     const parsedLocation =
       isLocation && location
         ? typeof location === "string"
@@ -718,16 +735,21 @@ export const sendGroupMessage = async (req, res) => {
       location: isLocation
         ? { lat: parsedLocation.lat, lng: parsedLocation.lng, label: parsedLocation.label || "" }
         : undefined,
+      replyTo: replyToId,
       status: "sent",
     });
 
     group.lastMessage = message._id;
     await group.save();
 
-    const populatedMessage = await message.populate(
-      "sender",
-      "name username avatar"
-    );
+    const populatedMessage = await message.populate([
+      { path: "sender", select: "name username avatar" },
+      {
+        path: "replyTo",
+        select: "text type attachment isDeleted sender",
+        populate: { path: "sender", select: "name username" },
+      },
+    ]);
 
     const io = req.app.get("io");
     if (io) {

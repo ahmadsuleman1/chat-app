@@ -13,4 +13,6 @@ export const messageService = {
     }
     return api.post(`/messages/${conversationId}`, payload).then((r) => r.data);
   },
+  deleteMessage: (messageId, mode = 'me') =>
+    api.delete(`/messages/single/${messageId}`, { params: { mode } }).then((r) => r.data),
 };

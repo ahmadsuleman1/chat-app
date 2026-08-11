@@ -14,6 +14,8 @@ export default function MessageList({
   hasMore,
   loadingMore,
   onLoadMore,
+  onReplyToMessage,
+  onDeleteMessage,
 }) {
   const containerRef = useRef(null);
   const bottomRef = useRef(null);
@@ -95,6 +97,12 @@ export default function MessageList({
           message={m}
           isOwn={m.senderId === currentUserId}
           senderName={showSenderName && m.senderId !== currentUserId ? m.senderName : null}
+          onReply={m.isDeleted || String(m.id).startsWith('temp-') ? null : () => onReplyToMessage?.(m)}
+          onDelete={
+            m.isDeleted || String(m.id).startsWith('temp-')
+              ? null
+              : (mode) => onDeleteMessage?.(m, mode)
+          }
         />
       ))}
       {typingUser && <TypingIndicator name={typingUser} />}

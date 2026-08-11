@@ -3,6 +3,19 @@
 // of `avatarUrl` for users. These helpers translate both into the shapes
 // the rest of the frontend already expects, in one place.
 
+function normalizeReplyTo(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const senderObj = raw.sender && typeof raw.sender === 'object' ? raw.sender : null;
+  return {
+    id: raw._id || raw.id,
+    senderName: senderObj?.name || raw.senderName || '',
+    text: raw.text || '',
+    type: raw.type || 'text',
+    attachment: raw.attachment || null,
+    isDeleted: !!raw.isDeleted,
+  };
+}
+
 export function normalizeMessage(raw) {
   if (!raw) return raw;
   const senderObj = raw.sender && typeof raw.sender === 'object' ? raw.sender : null;
@@ -19,6 +32,8 @@ export function normalizeMessage(raw) {
     attachment: raw.attachment || null,
     location: raw.location || null,
     status: raw.status || 'sent',
+    replyTo: normalizeReplyTo(raw.replyTo),
+    isDeleted: !!raw.isDeleted,
     createdAt: raw.createdAt,
   };
 }

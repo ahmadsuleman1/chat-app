@@ -52,22 +52,40 @@ export const initializeSocket = (server) => {
     io.emit("presence", { userId, status: "online", lastSeen: null });
 
     // ===== PRIVATE MESSAGE (also supported over sockets directly) =====
-    socket.on("send_message", async ({ conversationId, groupId, text }) => {
+    socket.on("send_message", async ({ conversationId, groupId, text, replyTo }) => {
       try {
         if (!text || !text.trim()) return;
+
+        let replyToId = null;
+        if (replyTo) {
+          const replyMessage = await Message.findById(replyTo);
+          if (
+            replyMessage &&
+            !replyMessage.isDeleted &&
+            ((conversationId && replyMessage.conversation?.toString() === conversationId) ||
+              (groupId && replyMessage.group?.toString() === groupId))
+          ) {
+            replyToId = replyMessage._id;
+          }
+        }
 
         const message = await Message.create({
           conversation: conversationId || null,
           group: groupId || null,
           sender: userId,
           text: text.trim(),
+          replyTo: replyToId,
           status: "sent",
         });
 
-        const populated = await message.populate(
-          "sender",
-          "name username avatar"
-        );
+        const populated = await message.populate([
+          { path: "sender", select: "name username avatar" },
+          {
+            path: "replyTo",
+            select: "text type attachment isDeleted sender",
+            populate: { path: "sender", select: "name username" },
+          },
+        ]);
 
         socket.emit("message_sent", populated);
 

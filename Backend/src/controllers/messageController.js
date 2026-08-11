@@ -46,7 +46,10 @@ export const getMessages = async (req, res) => {
       });
     }
 
-    const query = { conversation: conversationId };
+    const query = {
+      conversation: conversationId,
+      deletedFor: { $ne: req.userId },
+    };
     if (before) {
       const beforeDate = new Date(before);
       if (!isNaN(beforeDate.getTime())) {
@@ -58,6 +61,11 @@ export const getMessages = async (req, res) => {
     // know if there's another page, then flip back to chronological order.
     const page = await Message.find(query)
       .populate("sender", "name username avatar")
+      .populate({
+        path: "replyTo",
+        select: "text type attachment isDeleted sender",
+        populate: { path: "sender", select: "name username" },
+      })
       .sort({ createdAt: -1 })
       .limit(pageSize + 1);
 
@@ -79,12 +87,122 @@ export const getMessages = async (req, res) => {
 };
 
 // =========================
+// DELETE MESSAGE (works for both DM and group messages)
+// mode=me        -> hides the message only for the requesting user
+// mode=everyone  -> sender-only, wipes content for everyone (soft delete)
+// =========================
+export const deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const mode = req.query.mode === "everyone" ? "everyone" : "me";
+
+    const message = await Message.findById(messageId);
+    if (!message) {
+      return res.status(404).json({
+        success: false,
+        message: "Message not found",
+      });
+    }
+
+    let isAuthorized = false;
+    let groupMemberIds = [];
+
+    if (message.conversation) {
+      const conversation = await Conversation.findById(message.conversation);
+      isAuthorized =
+        !!conversation &&
+        conversation.participants.some((p) => p.toString() === req.userId);
+    } else if (message.group) {
+      const Group = (await import("../models/Group.js")).default;
+      const group = await Group.findById(message.group);
+      isAuthorized = !!group && group.members.some((m) => m.toString() === req.userId);
+      groupMemberIds = group ? group.members.map((m) => m.toString()) : [];
+    }
+
+    if (!isAuthorized) {
+      return res.status(403).json({
+        success: false,
+        message: "You can't delete this message",
+      });
+    }
+
+    const isSender = message.sender.toString() === req.userId;
+
+    if (mode === "everyone") {
+      if (!isSender) {
+        return res.status(403).json({
+          success: false,
+          message: "Only the sender can delete a message for everyone",
+        });
+      }
+
+      message.isDeleted = true;
+      message.text = "";
+      message.attachment = null;
+      message.location = undefined;
+      await message.save();
+
+      const io = req.app.get("io");
+      if (io) {
+        if (message.conversation) {
+          const conversation = await Conversation.findById(message.conversation);
+          const receiverId = conversation?.participants.find(
+            (p) => p.toString() !== req.userId
+          );
+          const receiverSocketId =
+            receiverId && getReceiverSocketId(receiverId.toString());
+          if (receiverSocketId) {
+            io.to(receiverSocketId).emit("message_deleted", {
+              messageId,
+              mode: "everyone",
+              conversationId: message.conversation.toString(),
+            });
+          }
+        } else if (message.group) {
+          groupMemberIds
+            .filter((id) => id !== req.userId)
+            .forEach((id) => {
+              const socketId = getReceiverSocketId(id);
+              if (socketId) {
+                io.to(socketId).emit("message_deleted", {
+                  messageId,
+                  mode: "everyone",
+                  groupId: message.group.toString(),
+                });
+              }
+            });
+        }
+      }
+    } else {
+      // delete for me only - just hide it from this user's view
+      if (!message.deletedFor.some((id) => id.toString() === req.userId)) {
+        message.deletedFor.push(req.userId);
+        await message.save();
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Message deleted",
+      mode,
+      messageId,
+    });
+  } catch (error) {
+    console.error("Delete message error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Something went wrong while deleting message",
+    });
+  }
+};
+
+// =========================
 // SEND MESSAGE
 // =========================
 export const sendMessage = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { text, type, location } = req.body;
+    const { text, type, location, replyTo } = req.body;
 
     const isLocation = type === "location";
     const isImage = type === "image";
@@ -141,6 +259,19 @@ export const sendMessage = async (req, res) => {
       attachmentUrl = result.secure_url;
     }
 
+    // ---- resolve reply target (must belong to the same conversation) ----
+    let replyToId = null;
+    if (replyTo) {
+      const replyMessage = await Message.findById(replyTo);
+      if (
+        replyMessage &&
+        replyMessage.conversation?.toString() === conversationId &&
+        !replyMessage.isDeleted
+      ) {
+        replyToId = replyMessage._id;
+      }
+    }
+
     // ---- build the message doc ----
     const parsedLocation =
       isLocation && location
@@ -158,6 +289,7 @@ export const sendMessage = async (req, res) => {
       location: isLocation
         ? { lat: parsedLocation.lat, lng: parsedLocation.lng, label: parsedLocation.label || "" }
         : undefined,
+      replyTo: replyToId,
       status: "sent",
     });
 
@@ -165,10 +297,14 @@ export const sendMessage = async (req, res) => {
     conversation.deletedFor = []; // a new message un-hides the chat for everyone
     await conversation.save();
 
-    const populatedMessage = await message.populate(
-      "sender",
-      "name username avatar"
-    );
+    const populatedMessage = await message.populate([
+      { path: "sender", select: "name username avatar" },
+      {
+        path: "replyTo",
+        select: "text type attachment isDeleted sender",
+        populate: { path: "sender", select: "name username" },
+      },
+    ]);
 
     // Real-time delivery via Socket.IO
     const io = req.app.get("io");

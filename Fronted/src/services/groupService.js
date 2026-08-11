@@ -22,4 +22,8 @@ export const groupService = {
     }
     return api.post(`/groups/${id}/messages`, payload).then((r) => r.data);
   },
+  deleteMessage: (groupId, messageId, mode = 'me') =>
+    api
+      .delete(`/groups/${groupId}/messages/${messageId}`, { params: { mode } })
+      .then((r) => r.data),
 };

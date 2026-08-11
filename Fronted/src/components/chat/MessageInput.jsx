@@ -4,7 +4,15 @@ import EmojiPicker from './EmojiPicker';
 
 const MAX_IMAGE_MB = 10;
 
-export default function MessageInput({ onSend, onSendLocation, onSendImage, onTyping, disabled }) {
+export default function MessageInput({
+  onSend,
+  onSendLocation,
+  onSendImage,
+  onTyping,
+  disabled,
+  replyingTo,
+  onCancelReply,
+}) {
   const [value, setValue] = useState('');
   const [sharingLocation, setSharingLocation] = useState(false);
   const [imageFile, setImageFile] = useState(null);
@@ -54,21 +62,23 @@ export default function MessageInput({ onSend, onSendLocation, onSendImage, onTy
     if (imageFile) {
       setSendingImage(true);
       try {
-        await onSendImage?.(imageFile, value.trim());
+        await onSendImage?.(imageFile, value.trim(), replyingTo?.id || null);
       } finally {
         setSendingImage(false);
         clearImage();
         setValue('');
         onTyping?.(false);
+        onCancelReply?.();
       }
       return;
     }
 
     const trimmed = value.trim();
     if (!trimmed) return;
-    onSend(trimmed);
+    onSend(trimmed, replyingTo?.id || null);
     setValue('');
     onTyping?.(false);
+    onCancelReply?.();
   }
 
   function handleShareLocation() {
@@ -98,6 +108,31 @@ export default function MessageInput({ onSend, onSendLocation, onSendImage, onTy
 
   return (
     <div className="border-t border-line bg-surface-card">
+      {replyingTo && (
+        <div className="flex items-center gap-3 border-b border-line bg-surface-sunken px-5 py-2.5">
+          <div className="min-w-0 flex-1 border-l-2 border-brand-500 pl-3">
+            <p className="text-xs font-semibold text-brand-600">
+              Replying to {replyingTo.senderName || 'message'}
+            </p>
+            <p className="truncate text-xs text-ink-muted">
+              {replyingTo.type === 'image'
+                ? 'Photo'
+                : replyingTo.type === 'location'
+                ? 'Shared location'
+                : replyingTo.text}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancelReply}
+            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-surface-card hover:text-ink"
+            aria-label="Cancel reply"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {imagePreview && (
         <div className="flex items-center gap-3 border-b border-line px-5 py-3">
           <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-line">
