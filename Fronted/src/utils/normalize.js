@@ -16,6 +16,7 @@ export function normalizeMessage(raw) {
     senderAvatar: senderObj?.avatar || raw.senderAvatar,
     text: raw.text || '',
     type: raw.type || 'text',
+    attachment: raw.attachment || null,
     location: raw.location || null,
     status: raw.status || 'sent',
     createdAt: raw.createdAt,

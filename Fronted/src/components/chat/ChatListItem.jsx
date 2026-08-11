@@ -15,6 +15,7 @@ function formatTime(dateStr) {
 function lastMessagePreview(lastMessage) {
   if (!lastMessage) return null;
   if (lastMessage.type === 'location') return '📍 Location';
+  if (lastMessage.type === 'image') return lastMessage.text ? `📷 ${lastMessage.text}` : '📷 Photo';
   return lastMessage.text;
 }
 

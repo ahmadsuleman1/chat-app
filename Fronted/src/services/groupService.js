@@ -12,5 +12,14 @@ export const groupService = {
   promoteAdmin: (id, userId) => api.patch(`/groups/${id}/admins/${userId}`).then((r) => r.data),
   demoteAdmin: (id, userId) => api.delete(`/groups/${id}/admins/${userId}`).then((r) => r.data),
   getMessages: (id) => api.get(`/groups/${id}/messages`).then((r) => r.data),
-  sendMessage: (id, payload) => api.post(`/groups/${id}/messages`, payload).then((r) => r.data),
+  sendMessage: (id, payload) => {
+    if (payload instanceof FormData) {
+      return api
+        .post(`/groups/${id}/messages`, payload, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        .then((r) => r.data);
+    }
+    return api.post(`/groups/${id}/messages`, payload).then((r) => r.data);
+  },
 };

@@ -42,7 +42,7 @@ export const getConversations = async (req, res) => {
       .populate("participants", "name username avatar status lastSeen")
       .populate({
         path: "lastMessage",
-        select: "text sender status createdAt",
+        select: "text type sender status createdAt",
       })
       .sort({ updatedAt: -1 });
 

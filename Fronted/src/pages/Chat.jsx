@@ -407,6 +407,40 @@ export default function Chat() {
     [activeChat, appendOptimistic, toast]
   );
 
+  const handleSendImage = useCallback(
+    async (file, caption = '') => {
+      if (!activeChat || !file) return;
+
+      const previewUrl = URL.createObjectURL(file);
+      const optimisticId = appendOptimistic({
+        type: 'image',
+        text: caption,
+        attachment: previewUrl,
+        uploading: true,
+      });
+
+      try {
+        const formData = new FormData();
+        formData.append('type', 'image');
+        formData.append('media', file);
+        if (caption) formData.append('text', caption);
+
+        const data =
+          activeChat.kind === 'group'
+            ? await groupService.sendMessage(activeChat.id, formData)
+            : await messageService.sendMessage(activeChat.id, formData);
+        const saved = normalizeMessage(data.message || data);
+        setMessages((prev) => prev.map((m) => (m.id === optimisticId ? saved : m)));
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        toast.error(err.message || 'Could not send image.');
+      } finally {
+        URL.revokeObjectURL(previewUrl);
+      }
+    },
+    [activeChat, appendOptimistic, toast]
+  );
+
   const handleTypingChange = useCallback(
     (isTyping) => {
       if (!activeChat) return;
@@ -458,7 +492,12 @@ export default function Chat() {
               typingUser={typingUser}
               showSenderName={activeChat.kind === 'group'}
             />
-            <MessageInput onSend={handleSend} onSendLocation={handleSendLocation} onTyping={handleTypingChange} />
+            <MessageInput
+              onSend={handleSend}
+              onSendLocation={handleSendLocation}
+              onSendImage={handleSendImage}
+              onTyping={handleTypingChange}
+            />
           </>
         ) : (
           <EmptyState />

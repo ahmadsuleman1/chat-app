@@ -1,7 +1,20 @@
 import Group from "../models/Group.js";
 import Message from "../models/Message.js";
 import User from "../models/User.js";
+import cloudinary from "../config/cloudinary.js";
 import { getReceiverSocketId, getIO } from "../socket/socket.js";
+
+const uploadToCloudinary = (buffer, folder) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder, resource_type: "image" },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result);
+      }
+    );
+    stream.end(buffer);
+  });
 
 const isAdmin = (group, userId) =>
   group.admins.some((a) => a.toString() === userId.toString());
@@ -621,7 +634,7 @@ export const getGroupMessages = async (req, res) => {
 };
 
 // =========================
-// SEND GROUP MESSAGE (text or location)
+// SEND GROUP MESSAGE (text, image, or location)
 // =========================
 export const sendGroupMessage = async (req, res) => {
   try {
@@ -629,16 +642,21 @@ export const sendGroupMessage = async (req, res) => {
     const { text, type, location } = req.body;
 
     const isLocation = type === "location";
+    const isImage = type === "image";
 
     if (isLocation) {
-      if (
-        !location ||
-        typeof location.lat !== "number" ||
-        typeof location.lng !== "number"
-      ) {
+      const loc = typeof location === "string" ? JSON.parse(location) : location;
+      if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") {
         return res.status(400).json({
           success: false,
           message: "A valid location (lat, lng) is required",
+        });
+      }
+    } else if (isImage) {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "Image file is required for image messages",
         });
       }
     } else if (!text || !text.trim()) {
@@ -663,13 +681,27 @@ export const sendGroupMessage = async (req, res) => {
       });
     }
 
+    let attachmentUrl = null;
+    if (isImage && req.file) {
+      const result = await uploadToCloudinary(req.file.buffer, "ring-chat/messages");
+      attachmentUrl = result.secure_url;
+    }
+
+    const parsedLocation =
+      isLocation && location
+        ? typeof location === "string"
+          ? JSON.parse(location)
+          : location
+        : undefined;
+
     const message = await Message.create({
       group: id,
       sender: req.userId,
-      type: isLocation ? "location" : "text",
-      text: isLocation ? "" : text.trim(),
+      type: isLocation ? "location" : isImage ? "image" : "text",
+      text: isLocation || isImage ? (text || "") : text.trim(),
+      attachment: attachmentUrl,
       location: isLocation
-        ? { lat: location.lat, lng: location.lng, label: location.label || "" }
+        ? { lat: parsedLocation.lat, lng: parsedLocation.lng, label: parsedLocation.label || "" }
         : undefined,
       status: "sent",
     });
