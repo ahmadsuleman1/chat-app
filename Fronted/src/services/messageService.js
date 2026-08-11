@@ -1,8 +1,8 @@
 import api from '../lib/axios';
 
 export const messageService = {
-  getMessages: (conversationId) =>
-    api.get(`/messages/${conversationId}`).then((r) => r.data),
+  getMessages: (conversationId, params = {}) =>
+    api.get(`/messages/${conversationId}`, { params }).then((r) => r.data),
   sendMessage: (conversationId, payload) => {
     if (payload instanceof FormData) {
       return api

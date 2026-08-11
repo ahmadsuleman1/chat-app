@@ -19,11 +19,13 @@ const uploadToCloudinary = (buffer, folder) =>
   });
 
 // =========================
-// GET MESSAGES FOR A CONVERSATION
+// GET MESSAGES FOR A CONVERSATION (paginated, newest page first)
 // =========================
 export const getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
+    const { before, limit } = req.query;
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
 
     const conversation = await Conversation.findById(conversationId);
     if (!conversation) {
@@ -44,13 +46,28 @@ export const getMessages = async (req, res) => {
       });
     }
 
-    const messages = await Message.find({ conversation: conversationId })
+    const query = { conversation: conversationId };
+    if (before) {
+      const beforeDate = new Date(before);
+      if (!isNaN(beforeDate.getTime())) {
+        query.createdAt = { $lt: beforeDate };
+      }
+    }
+
+    // Fetch newest-first so "before" pagination is cheap, grab one extra to
+    // know if there's another page, then flip back to chronological order.
+    const page = await Message.find(query)
       .populate("sender", "name username avatar")
-      .sort({ createdAt: 1 });
+      .sort({ createdAt: -1 })
+      .limit(pageSize + 1);
+
+    const hasMore = page.length > pageSize;
+    const pageMessages = (hasMore ? page.slice(0, pageSize) : page).reverse();
 
     return res.status(200).json({
       success: true,
-      messages,
+      messages: pageMessages,
+      hasMore,
     });
   } catch (error) {
     console.error("Get messages error:", error);

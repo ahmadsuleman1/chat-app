@@ -14,6 +14,8 @@ import { groupService } from '../services/groupService';
 import { getSocket } from '../socket/socket';
 import { normalizeMessage } from '../utils/normalize';
 
+const MESSAGE_PAGE_SIZE = 30;
+
 export default function Chat() {
   const { currentUser } = useAuth();
   const toast = useToast();
@@ -25,6 +27,8 @@ export default function Chat() {
   const [activeChat, setActiveChat] = useState(null); // { kind: 'dm'|'group', id, ... }
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
   const [typingUser, setTypingUser] = useState(null);
   const [sidebarVisibleOnMobile, setSidebarVisibleOnMobile] = useState(true);
   const [groupInfoOpen, setGroupInfoOpen] = useState(false);
@@ -74,13 +78,17 @@ export default function Chat() {
     async function loadMessages() {
       setMessagesLoading(true);
       setMessages([]);
+      setHasMoreMessages(false);
       try {
         const data =
           activeChat.kind === 'group'
-            ? await groupService.getMessages(activeChat.id)
-            : await messageService.getMessages(activeChat.id);
+            ? await groupService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE })
+            : await messageService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE });
         const raw = data.messages || data || [];
-        if (!cancelled) setMessages(raw.map(normalizeMessage));
+        if (!cancelled) {
+          setMessages(raw.map(normalizeMessage));
+          setHasMoreMessages(!!data.hasMore);
+        }
       } catch (err) {
         if (!cancelled) toast.error(err.message || 'Could not load messages.');
       } finally {
@@ -93,6 +101,33 @@ export default function Chat() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChat?.kind, activeChat?.id]);
+
+  // Fetch an older page when the user scrolls near the top of the thread.
+  const handleLoadMoreMessages = useCallback(async () => {
+    if (!activeChat || loadingMoreMessages || !hasMoreMessages || messages.length === 0) return;
+
+    const oldest = messages[0];
+    setLoadingMoreMessages(true);
+    try {
+      const data =
+        activeChat.kind === 'group'
+          ? await groupService.getMessages(activeChat.id, {
+              before: oldest.createdAt,
+              limit: MESSAGE_PAGE_SIZE,
+            })
+          : await messageService.getMessages(activeChat.id, {
+              before: oldest.createdAt,
+              limit: MESSAGE_PAGE_SIZE,
+            });
+      const older = (data.messages || []).map(normalizeMessage);
+      setMessages((prev) => [...older, ...prev]);
+      setHasMoreMessages(!!data.hasMore);
+    } catch (err) {
+      toast.error(err.message || 'Could not load older messages.');
+    } finally {
+      setLoadingMoreMessages(false);
+    }
+  }, [activeChat, messages, loadingMoreMessages, hasMoreMessages, toast]);
 
   // Socket event wiring: presence, incoming messages, typing, group lifecycle
   useEffect(() => {
@@ -491,6 +526,9 @@ export default function Chat() {
               currentUserId={currentUser?.id}
               typingUser={typingUser}
               showSenderName={activeChat.kind === 'group'}
+              hasMore={hasMoreMessages}
+              loadingMore={loadingMoreMessages}
+              onLoadMore={handleLoadMoreMessages}
             />
             <MessageInput
               onSend={handleSend}

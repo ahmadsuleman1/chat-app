@@ -595,11 +595,13 @@ export const demoteAdmin = async (req, res) => {
 };
 
 // =========================
-// GET GROUP MESSAGES
+// GET GROUP MESSAGES (paginated, newest page first)
 // =========================
 export const getGroupMessages = async (req, res) => {
   try {
     const { id } = req.params;
+    const { before, limit } = req.query;
+    const pageSize = Math.min(Math.max(parseInt(limit, 10) || 30, 1), 100);
 
     const group = await Group.findById(id);
     if (!group) {
@@ -616,13 +618,26 @@ export const getGroupMessages = async (req, res) => {
       });
     }
 
-    const messages = await Message.find({ group: id })
+    const query = { group: id };
+    if (before) {
+      const beforeDate = new Date(before);
+      if (!isNaN(beforeDate.getTime())) {
+        query.createdAt = { $lt: beforeDate };
+      }
+    }
+
+    const page = await Message.find(query)
       .populate("sender", "name username avatar")
-      .sort({ createdAt: 1 });
+      .sort({ createdAt: -1 })
+      .limit(pageSize + 1);
+
+    const hasMore = page.length > pageSize;
+    const messages = (hasMore ? page.slice(0, pageSize) : page).reverse();
 
     return res.status(200).json({
       success: true,
       messages,
+      hasMore,
     });
   } catch (error) {
     console.error("Get group messages error:", error);

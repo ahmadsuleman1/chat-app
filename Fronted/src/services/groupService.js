@@ -11,7 +11,7 @@ export const groupService = {
   leave: (id) => api.post(`/groups/${id}/leave`).then((r) => r.data),
   promoteAdmin: (id, userId) => api.patch(`/groups/${id}/admins/${userId}`).then((r) => r.data),
   demoteAdmin: (id, userId) => api.delete(`/groups/${id}/admins/${userId}`).then((r) => r.data),
-  getMessages: (id) => api.get(`/groups/${id}/messages`).then((r) => r.data),
+  getMessages: (id, params = {}) => api.get(`/groups/${id}/messages`, { params }).then((r) => r.data),
   sendMessage: (id, payload) => {
     if (payload instanceof FormData) {
       return api
