@@ -20,7 +20,7 @@ const messageSchema = new mongoose.Schema(
     text: {
       type: String,
       required: function () {
-        return this.type === "text";
+        return this.type === "text" && !this.isDeleted;
       },
       trim: true,
       default: "",
