@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Ban, Check, CheckCheck, ImageOff, Loader2, MapPin, MoreVertical, Reply, Trash2, X } from 'lucide-react';
+import AudioPlayer from './AudioPlayer';
 
 function formatTime(dateStr) {
   return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -11,22 +12,43 @@ function ReplyPreview({ replyTo }) {
     ? 'This message was deleted'
     : replyTo.type === 'image'
     ? 'Photo'
+    : replyTo.type === 'voice'
+    ? 'Voice note'
     : replyTo.type === 'location'
     ? 'Shared location'
     : replyTo.text;
 
   return (
-    <div className="mx-3 mt-2 rounded-lg border-l-2 border-brand-500 bg-black/5 px-2.5 py-1.5 text-xs">
-      <p className="font-semibold text-brand-700">{replyTo.senderName || 'Someone'}</p>
+    <div className="mx-1 mt-1 mb-2 rounded-lg border-l-2 border-brand-500 bg-black/5 px-2.5 py-1.5 text-xs dark:bg-white/10">
+      <p className="font-semibold text-brand-700 dark:text-brand-300">{replyTo.senderName || 'Someone'}</p>
       <p className={`truncate text-ink-muted ${replyTo.isDeleted ? 'italic' : ''}`}>{label}</p>
     </div>
   );
 }
 
 export default function MessageBubble({ message, isOwn, senderName, onReply, onDelete }) {
-  const { text, createdAt, status, type, location, attachment, uploading, replyTo, isDeleted } = message;
+  const {
+    text,
+    createdAt,
+    status,
+    type,
+    location,
+    attachment,
+    voiceUrl,
+    voiceDuration,
+    uploading,
+    replyTo,
+    isDeleted,
+  } = message;
+
   const isLocation = type === 'location';
+  const isVoice =
+    type === 'voice' ||
+    type === 'Voice' ||
+    Boolean(voiceUrl || (attachment && String(attachment).includes('/voice_notes/')));
   const isImage = type === 'image' && !isDeleted;
+  const audioSrc = voiceUrl || attachment;
+
   const [imageFailed, setImageFailed] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -60,7 +82,7 @@ export default function MessageBubble({ message, isOwn, senderName, onReply, onD
     <div className={`group flex animate-rise-in items-center gap-1.5 ${isOwn ? 'justify-end' : 'justify-start'}`}>
       {isOwn && menu}
       <div
-        className={`max-w-[78%] rounded-2xl text-sm leading-relaxed sm:max-w-[65%] ${
+        className={`max-w-[85%] rounded-2xl text-sm leading-relaxed sm:max-w-[70%] ${
           isLocation || isImage ? 'p-0 overflow-hidden' : 'px-4 py-2.5'
         } ${
           isOwn
@@ -69,12 +91,21 @@ export default function MessageBubble({ message, isOwn, senderName, onReply, onD
         }`}
       >
         {!isOwn && senderName && (
-          <p className="px-4 pt-2 text-xs font-semibold text-brand-600">{senderName}</p>
+          <p className="px-1 pt-1 pb-1 text-xs font-semibold text-brand-600">{senderName}</p>
         )}
 
         <ReplyPreview replyTo={replyTo} />
 
-        {isImage ? (
+        {isVoice ? (
+          <div>
+            <AudioPlayer src={audioSrc} duration={voiceDuration} isOwn={isOwn} />
+            {text && text !== 'Voice note' && (
+              <p className={`mt-1 text-xs whitespace-pre-wrap break-words ${isOwn ? 'text-ink/80' : 'text-ink-muted'}`}>
+                {text}
+              </p>
+            )}
+          </div>
+        ) : isImage ? (
           <div className="relative">
             {imageFailed ? (
               <div className="flex h-40 w-56 flex-col items-center justify-center gap-1.5 bg-surface-sunken text-ink-faint">
@@ -101,7 +132,7 @@ export default function MessageBubble({ message, isOwn, senderName, onReply, onD
               </div>
             )}
             {text && (
-              <p className={`whitespace-pre-wrap break-words px-4 py-2 ${!isOwn && senderName ? '' : ''}`}>
+              <p className="whitespace-pre-wrap break-words px-4 py-2">
                 {text}
               </p>
             )}
@@ -128,7 +159,7 @@ export default function MessageBubble({ message, isOwn, senderName, onReply, onD
             </div>
           </a>
         ) : (
-          <p className={`whitespace-pre-wrap break-words ${!isOwn && senderName ? 'px-4' : ''}`}>
+          <p className="whitespace-pre-wrap break-words">
             {text}
           </p>
         )}
@@ -151,6 +182,7 @@ export default function MessageBubble({ message, isOwn, senderName, onReply, onD
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
         >
           <button
+            type="button"
             onClick={() => setLightboxOpen(false)}
             className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
             aria-label="Close"

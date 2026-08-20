@@ -12,15 +12,12 @@ export const groupService = {
   promoteAdmin: (id, userId) => api.patch(`/groups/${id}/admins/${userId}`).then((r) => r.data),
   demoteAdmin: (id, userId) => api.delete(`/groups/${id}/admins/${userId}`).then((r) => r.data),
   getMessages: (id, params = {}) => api.get(`/groups/${id}/messages`, { params }).then((r) => r.data),
-  sendMessage: (id, payload) => {
-    if (payload instanceof FormData) {
-      return api
-        .post(`/groups/${id}/messages`, payload, {
-          headers: { 'Content-Type': 'multipart/form-data' },
-        })
-        .then((r) => r.data);
-    }
-    return api.post(`/groups/${id}/messages`, payload).then((r) => r.data);
+  sendMessage: (id, payload, options = {}) => {
+    const config =
+      payload instanceof FormData
+        ? { ...options, headers: { ...options?.headers, 'Content-Type': 'multipart/form-data' } }
+        : options;
+    return api.post(`/groups/${id}/messages`, payload, config).then((r) => r.data);
   },
   deleteMessage: (groupId, messageId, mode = 'me') =>
     api

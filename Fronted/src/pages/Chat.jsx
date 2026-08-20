@@ -71,7 +71,7 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Load messages whenever the active chat changes
+  // Load initial page of messages whenever active chat changes
   useEffect(() => {
     if (!activeChat) return;
     let cancelled = false;
@@ -82,11 +82,12 @@ export default function Chat() {
       setHasMoreMessages(false);
       setReplyingTo(null);
       try {
+        const params = { limit: MESSAGE_PAGE_SIZE };
         const data =
           activeChat.kind === 'group'
-            ? await groupService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE })
-            : await messageService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE });
-        const raw = data.messages || data || [];
+            ? await groupService.getMessages(activeChat.id, params)
+            : await messageService.getMessages(activeChat.id, params);
+        const raw = data.messages || [];
         if (!cancelled) {
           setMessages(raw.map(normalizeMessage));
           setHasMoreMessages(!!data.hasMore);
@@ -104,34 +105,31 @@ export default function Chat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChat?.kind, activeChat?.id]);
 
-  // Fetch an older page when the user scrolls near the top of the thread.
+  // Pagination helper: load older messages
   const handleLoadMoreMessages = useCallback(async () => {
     if (!activeChat || loadingMoreMessages || !hasMoreMessages || messages.length === 0) return;
+    const oldestId = messages[0]?.id;
+    if (!oldestId) return;
 
-    const oldest = messages[0];
     setLoadingMoreMessages(true);
     try {
+      const params = { limit: MESSAGE_PAGE_SIZE, before: oldestId };
       const data =
         activeChat.kind === 'group'
-          ? await groupService.getMessages(activeChat.id, {
-              before: oldest.createdAt,
-              limit: MESSAGE_PAGE_SIZE,
-            })
-          : await messageService.getMessages(activeChat.id, {
-              before: oldest.createdAt,
-              limit: MESSAGE_PAGE_SIZE,
-            });
-      const older = (data.messages || []).map(normalizeMessage);
-      setMessages((prev) => [...older, ...prev]);
+          ? await groupService.getMessages(activeChat.id, params)
+          : await messageService.getMessages(activeChat.id, params);
+      const raw = data.messages || [];
+      const normalized = raw.map(normalizeMessage);
+      setMessages((prev) => [...normalized, ...prev]);
       setHasMoreMessages(!!data.hasMore);
     } catch (err) {
       toast.error(err.message || 'Could not load older messages.');
     } finally {
       setLoadingMoreMessages(false);
     }
-  }, [activeChat, messages, loadingMoreMessages, hasMoreMessages, toast]);
+  }, [activeChat, loadingMoreMessages, hasMoreMessages, messages, toast]);
 
-  // Socket event wiring: presence, incoming messages, typing, group lifecycle
+  // Socket event wiring: presence, incoming messages, typing, voice recording, read receipts, deletions
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
@@ -151,7 +149,15 @@ export default function Chat() {
         setConversations((prev) =>
           prev.map((c) =>
             c.id === message.conversationId
-              ? { ...c, lastMessage: message, updatedAt: message.createdAt }
+              ? {
+                  ...c,
+                  lastMessage: message,
+                  updatedAt: message.createdAt,
+                  unreadCount:
+                    belongsToActive || message.senderId === currentUser?.id
+                      ? 0
+                      : (c.unreadCount || 0) + 1,
+                }
               : c
           )
         );
@@ -160,7 +166,15 @@ export default function Chat() {
         setGroups((prev) =>
           prev.map((g) =>
             g.id === message.groupId
-              ? { ...g, lastMessage: message, updatedAt: message.createdAt }
+              ? {
+                  ...g,
+                  lastMessage: message,
+                  updatedAt: message.createdAt,
+                  unreadCount:
+                    belongsToActive || message.senderId === currentUser?.id
+                      ? 0
+                      : (g.unreadCount || 0) + 1,
+                }
               : g
           )
         );
@@ -218,6 +232,40 @@ export default function Chat() {
       }
     }
 
+    function handleRecordingVoice({ conversationId, groupId, userId }) {
+      if (
+        (activeChat?.kind === 'dm' && conversationId === activeChat.id) ||
+        (activeChat?.kind === 'group' && groupId === activeChat.id)
+      ) {
+        setTypingUser(`${resolveTyperName(userId)} is recording voice...`);
+      }
+    }
+
+    function handleStopRecordingVoice({ conversationId, groupId }) {
+      if (
+        (activeChat?.kind === 'dm' && conversationId === activeChat.id) ||
+        (activeChat?.kind === 'group' && groupId === activeChat.id)
+      ) {
+        setTypingUser(null);
+      }
+    }
+
+    function handleMessageRead({ messageId }) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, status: 'read' } : m))
+      );
+    }
+
+    function handleMessageDeleted({ messageId }) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, isDeleted: true, text: '', attachment: null, location: null }
+            : m
+        )
+      );
+    }
+
     function handleGroupDeleted({ groupId }) {
       setGroups((prev) => prev.filter((g) => g.id !== groupId));
       setActiveChat((prev) => {
@@ -239,28 +287,12 @@ export default function Chat() {
       );
     }
 
-    // Sender's side: a message they sent has now been seen by the recipient
-    function handleMessageRead({ messageId }) {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, status: 'read' } : m))
-      );
-    }
-
-    // Someone else deleted a message "for everyone" - reflect it locally
-    function handleMessageDeleted({ messageId }) {
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === messageId
-            ? { ...m, isDeleted: true, text: '', attachment: null, location: null }
-            : m
-        )
-      );
-    }
-
     socket.on('receive_message', handleReceiveMessage);
     socket.on('presence', handlePresence);
     socket.on('typing', handleTyping);
     socket.on('stop_typing', handleStopTyping);
+    socket.on('recording_voice', handleRecordingVoice);
+    socket.on('stop_recording_voice', handleStopRecordingVoice);
     socket.on('group_deleted', handleGroupDeleted);
     socket.on('member_left_group', handleMemberLeftGroup);
     socket.on('message_read', handleMessageRead);
@@ -271,15 +303,16 @@ export default function Chat() {
       socket.off('presence', handlePresence);
       socket.off('typing', handleTyping);
       socket.off('stop_typing', handleStopTyping);
+      socket.off('recording_voice', handleRecordingVoice);
+      socket.off('stop_recording_voice', handleStopRecordingVoice);
       socket.off('group_deleted', handleGroupDeleted);
       socket.off('member_left_group', handleMemberLeftGroup);
       socket.off('message_read', handleMessageRead);
       socket.off('message_deleted', handleMessageDeleted);
     };
-  }, [activeChat, toast]);
+  }, [activeChat, toast, currentUser?.id]);
 
-  // Receiver's side: while a DM is open, mark any of the other person's
-  // unread messages as read (this is what actually makes the blue ticks work)
+  // Read receipt emitter
   useEffect(() => {
     if (!activeChat || activeChat.kind !== 'dm' || !currentUser) return;
     const socket = getSocket();
@@ -294,7 +327,6 @@ export default function Chat() {
 
     unseen.forEach((m) => socket.emit('message_read', { messageId: m.id }));
 
-    // Reflect it in the sidebar badge right away instead of waiting on a refetch
     if (unseen.length > 0) {
       setConversations((prev) =>
         prev.map((c) => (c.id === activeChat.id ? { ...c, unreadCount: 0 } : c))
@@ -314,7 +346,6 @@ export default function Chat() {
       if (item.kind === 'group') {
         socket?.emit('join_group', item.id);
       }
-      // Optimistically clear the badge the moment you open a chat
       if (item.kind === 'dm') {
         setConversations((prev) =>
           prev.map((c) => (c.id === item.id ? { ...c, unreadCount: 0 } : c))
@@ -494,6 +525,7 @@ export default function Chat() {
           activeChat.kind === 'group'
             ? await groupService.sendMessage(activeChat.id, formData)
             : await messageService.sendMessage(activeChat.id, formData);
+
         const saved = normalizeMessage(data.message || data);
         setMessages((prev) => prev.map((m) => (m.id === optimisticId ? saved : m)));
       } catch (err) {
@@ -501,6 +533,47 @@ export default function Chat() {
         toast.error(err.message || 'Could not send image.');
       } finally {
         URL.revokeObjectURL(previewUrl);
+      }
+    },
+    [activeChat, appendOptimistic, toast]
+  );
+
+  const handleSendVoice = useCallback(
+    async (audioBlob, duration) => {
+      if (!activeChat || !audioBlob) return;
+      const previewUrl = URL.createObjectURL(audioBlob);
+      const optimisticId = appendOptimistic({
+        type: 'voice',
+        text: 'Voice note',
+        voiceUrl: previewUrl,
+        voiceDuration: duration,
+      });
+
+      try {
+        const formData = new FormData();
+        const mimeType = audioBlob.type || '';
+        let fileExt = 'webm';
+        if (mimeType.includes('mp4') || mimeType.includes('aac')) {
+          fileExt = 'mp4';
+        } else if (mimeType.includes('ogg')) {
+          fileExt = 'ogg';
+        }
+
+        const fileKey = activeChat.kind === 'group' ? 'media' : 'file';
+        formData.append(fileKey, audioBlob, `voice_note.${fileExt}`);
+        formData.append('type', 'voice');
+        formData.append('duration', duration);
+
+        const data =
+          activeChat.kind === 'group'
+            ? await groupService.sendMessage(activeChat.id, formData)
+            : await messageService.sendMessage(activeChat.id, formData);
+
+        const saved = normalizeMessage(data.message || data);
+        setMessages((prev) => prev.map((m) => (m.id === optimisticId ? saved : m)));
+      } catch (err) {
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
+        toast.error(err.message || 'Could not send voice note.');
       }
     },
     [activeChat, appendOptimistic, toast]
@@ -515,7 +588,6 @@ export default function Chat() {
         if (!confirmed) return;
       }
 
-      // Optimistic update
       if (mode === 'everyone') {
         setMessages((prev) =>
           prev.map((m) =>
@@ -534,7 +606,6 @@ export default function Chat() {
         }
       } catch (err) {
         toast.error(err.message || 'Could not delete message.');
-        // Reload the thread to recover from a failed optimistic update
         const data =
           activeChat.kind === 'group'
             ? await groupService.getMessages(activeChat.id, { limit: MESSAGE_PAGE_SIZE })
@@ -544,6 +615,26 @@ export default function Chat() {
     },
     [activeChat, toast]
   );
+
+  const handleVoiceRecordingStart = useCallback(() => {
+    if (!activeChat) return;
+    const socket = getSocket();
+    const payload =
+      activeChat.kind === 'group'
+        ? { groupId: activeChat.id }
+        : { conversationId: activeChat.id, receiverId: activeChat.user?.id };
+    socket?.emit('recording_voice', payload);
+  }, [activeChat]);
+
+  const handleVoiceRecordingStop = useCallback(() => {
+    if (!activeChat) return;
+    const socket = getSocket();
+    const payload =
+      activeChat.kind === 'group'
+        ? { groupId: activeChat.id }
+        : { conversationId: activeChat.id, receiverId: activeChat.user?.id };
+    socket?.emit('stop_recording_voice', payload);
+  }, [activeChat]);
 
   const handleTypingChange = useCallback(
     (isTyping) => {
@@ -605,7 +696,10 @@ export default function Chat() {
               onSend={handleSend}
               onSendLocation={handleSendLocation}
               onSendImage={handleSendImage}
+              onSendVoice={handleSendVoice}
               onTyping={handleTypingChange}
+              onVoiceRecordingStart={handleVoiceRecordingStart}
+              onVoiceRecordingStop={handleVoiceRecordingStop}
               replyingTo={replyingTo}
               onCancelReply={() => setReplyingTo(null)}
             />

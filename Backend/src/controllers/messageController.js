@@ -6,10 +6,10 @@ import { getReceiverSocketId } from "../socket/socket.js";
 /**
  * Upload a buffer to Cloudinary and return the secure URL.
  */
-const uploadToCloudinary = (buffer, folder) =>
+const uploadToCloudinary = (buffer, folder, resourceType = "auto") =>
   new Promise((resolve, reject) => {
     const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: "image" },
+      { folder, resource_type: resourceType },
       (error, result) => {
         if (error) return reject(error);
         resolve(result);
@@ -202,10 +202,11 @@ export const deleteMessage = async (req, res) => {
 export const sendMessage = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const { text, type, location, replyTo } = req.body;
+    const { text, type, duration, audioDuration, location, replyTo } = req.body;
 
     const isLocation = type === "location";
     const isImage = type === "image";
+    const isVoice = type === "voice" || type === "Voice";
 
     // ---- validation ----
     if (isLocation) {
@@ -223,12 +224,20 @@ export const sendMessage = async (req, res) => {
           message: "Image file is required for image messages",
         });
       }
+    } else if (isVoice) {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "Audio file is required for voice messages",
+        });
+      }
     } else if (!text || !text.trim()) {
       return res.status(400).json({
         success: false,
         message: "Message text is required",
       });
     }
+    
 
     const conversation = await Conversation.findById(conversationId);
     if (!conversation) {
@@ -249,12 +258,20 @@ export const sendMessage = async (req, res) => {
       });
     }
 
-    // ---- upload image if present ----
+    // ---- upload attachment if present ----
     let attachmentUrl = null;
     if (isImage && req.file) {
       const result = await uploadToCloudinary(
         req.file.buffer,
-        "ring-chat/messages"
+        "ring-chat/messages",
+        "image"
+      );
+      attachmentUrl = result.secure_url;
+    } else if (isVoice && req.file) {
+      const result = await uploadToCloudinary(
+        req.file.buffer,
+        "ring-chat/voice_notes",
+        "video"
       );
       attachmentUrl = result.secure_url;
     }
@@ -280,12 +297,16 @@ export const sendMessage = async (req, res) => {
           : location
         : undefined;
 
+    const voiceDurationVal = Number(duration || audioDuration || 0);
+
     const message = await Message.create({
       conversation: conversationId,
       sender: req.userId,
-      type: isLocation ? "location" : isImage ? "image" : "text",
-      text: isLocation || isImage ? (text || "") : text.trim(),
+      type: isLocation ? "location" : isImage ? "image" : isVoice ? "voice" : "text",
+      text: isLocation || isImage || isVoice ? (text || "") : text.trim(),
       attachment: attachmentUrl,
+      VoiceUrl: isVoice ? attachmentUrl : null,
+      Voiceduration: isVoice ? voiceDurationVal : null,
       location: isLocation
         ? { lat: parsedLocation.lat, lng: parsedLocation.lng, label: parsedLocation.label || "" }
         : undefined,

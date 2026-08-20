@@ -25,13 +25,22 @@ const messageSchema = new mongoose.Schema(
       trim: true,
       default: "",
     },
+
     type: {
       type: String,
-      enum: ["text", "image", "location"],
+      enum: ["text", "image", "voice",  "location"],
       default: "text",
     },
     attachment: {
       type: String,
+      default: null,
+    },
+    VoiceUrl: {
+      type: String,
+      default: null,
+    },
+    Voiceduration: {
+      type: Number,
       default: null,
     },
     location: {
