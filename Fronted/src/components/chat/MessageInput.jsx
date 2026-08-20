@@ -36,6 +36,9 @@ export default function MessageInput({
   const audioChunksRef = useRef([]);
   const recordTimerRef = useRef(null);
   const shouldCancelRef = useRef(false);
+  // Ref mirror of recordSeconds so onstop always reads the true final value
+  // (React state inside the onstop closure is stale due to async batching).
+  const recordSecondsRef = useRef(0);
 
   useEffect(() => {
     return () => {
@@ -109,10 +112,13 @@ export default function MessageInput({
         if (!shouldCancelRef.current && audioChunksRef.current.length > 0) {
           const finalType = mediaRecorder.mimeType || 'audio/webm';
           const audioBlob = new Blob(audioChunksRef.current, { type: finalType });
-          const duration = recordSeconds > 0 ? recordSeconds : 1;
-          onSendVoice?.(audioBlob, duration);
+          // Use the ref value — it's always up-to-date even inside this closure,
+          // unlike the stale `recordSeconds` state snapshot.
+          const finalDuration = recordSecondsRef.current > 0 ? recordSecondsRef.current : 1;
+          onSendVoice?.(audioBlob, finalDuration);
         }
 
+        recordSecondsRef.current = 0;
         setRecordSeconds(0);
         setIsRecording(false);
         shouldCancelRef.current = false;
@@ -120,11 +126,13 @@ export default function MessageInput({
 
       mediaRecorder.start(100);
       setIsRecording(true);
+      recordSecondsRef.current = 0;
       setRecordSeconds(0);
       onVoiceRecordingStart?.();
 
       recordTimerRef.current = setInterval(() => {
-        setRecordSeconds((prev) => prev + 1);
+        recordSecondsRef.current += 1;
+        setRecordSeconds(recordSecondsRef.current);
       }, 1000);
     } catch (err) {
       console.error('Mic access error:', err);
